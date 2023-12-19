@@ -15,26 +15,53 @@ addEventListener('fetch', event => {
 async function handleRequest(request) {
     let authorization = request.headers.get('Authorization');
     if (authorization == '' || authorization == undefined || authorization == null) {
-        return new Response(AUTH_KEY_NO_PROVIDE_FAIL_MESSAGE)
+         return new Response(AUTH_KEY_NO_PROVIDE_FAIL_MESSAGE)
     }
     let token = authorization.replace('Bearer ', '');
     let body = await request.json();
     let geminiTalkList = convertGptTalkList2GeminiTalkList(body.messages);
     let isStream = body.stream;
-    console.log("请求列表为:", geminiTalkList)
-    const geminiResponse = await requestGemini(token, geminiTalkList);
-    console.log("响应内容为:", geminiResponse)
-    const geminiText = getGeminiText(geminiResponse);
-
+    console.log("请求列表为:",geminiTalkList)
+    const geminiResponse = await requestGemini(token,geminiTalkList );
+    console.log("响应内容为:",geminiResponse)
+    if(JSON.parse(geminiResponse).candidates[0].finishReason=='OTHER'){
+        return new Response(convert2GptResponse(''));
+    }
+    const geminiText = JSON.parse(geminiResponse).candidates[0].content.parts[0].text;
+    
     if (!isStream) {
         return buildResponse(geminiText);
     }
-    return buildStreamResponse(geminiText);
+    const { writable, readable } = new TransformStream();
+
+    const enc = new TextEncoder();
+    const writer = writable.getWriter();
+    await writer.write(enc.encode(`data: {"id": "chatcmpl-9yBOQH3TdLCRmVS82gnABaHQ0jb25","object": "chat.completion.chunk","created": 1702968312,"model": "gpt-3.5-turbo","choices": [{"delta": {"content": "${geminiText}"},"index": 0,"finish_reason": null}]} \n\n`));
+    await writer.write(enc.encode(`data: {"id": "chatcmpl-9yBOQH3TdLCRmVS82gnABaHQ0jb25","object": "chat.completion.chunk","created": 1702968312,"model": "gpt-3.5-turbo","choices": [{"delta": {},"index": 0,"finish_reason": "stop"}]} \n\n`));
+    await writer.write(enc.encode(`data: [DONE] \n\n`));
+    await writer.close()
+
+    // 返回流式数据给客户端
+    return new Response(readable, {
+        headers: {
+            "content-type": "text/event-stream",
+            "access-control-allow-credentials": "true",
+            "access-control-allow-headers": "Origin,Content-Type,Accept,User-Agent,Cookie,Authorization,X-Auth-Token,X-Requested-With",
+            "access-control-allow-methods": "GET,PUT,POST,DELETE,PATCH,HEAD,CONNECT,OPTIONS,TRACE",
+            "access-control-allow-origin": "*",
+            "access-control-max-age": "3628800",
+        }
+    });
+
+ 
+    
 }
 
+
+
 async function requestGemini(token, talkList) {
-    const requestBody = JSON.stringify({ "contents": talkList });
-    console.log("开始请求gemini:" + geminiUrl + token + requestBody);
+    const requestBody = JSON.stringify({"contents": talkList});
+    console.log("开始请求gemini:" + geminiUrl + token+requestBody);
     const response = await fetch(geminiUrl + token, {
         body: requestBody,
         method: "POST",
@@ -45,89 +72,54 @@ async function requestGemini(token, talkList) {
     return response.text();
 }
 
-function getGeminiText(response) {
-    return JSON.parse(response).candidates[0].content.parts[0].text;
-}
+
 
 function convert2GptResponse(msg) {
     return JSON.stringify({
-        "choices": [
-            {
-                "finish_reason": "stop",
-                "index": 0,
-                "message": {
-                    "content": msg,
-                    "role": "assistant"
-                }
-            }
-        ],
-        "created": 1702814742,
-        "id": "chatcmpl-1Qq8McZaJvX4WrWqJgUHc7gOageEG",
-        "model": "",
-        "object": "chat.completion",
-        "usage": {
-            "completion_tokens": 42,
-            "prompt_tokens": 0,
-            "total_tokens": 42
-        }
-    })
-
+      "choices": [
+          {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                  "content": msg,
+                  "role": "assistant"
+              }
+          }
+      ],
+      "created": 1702814742,
+      "id": "chatcmpl-1Qq8McZaJvX4WrWqJgUHc7gOageEG",
+      "model": "",
+      "object": "chat.completion",
+      "usage": {
+          "completion_tokens": 42,
+          "prompt_tokens": 0,
+          "total_tokens": 42
+      }
+  })
+    
 }
 
 
 function convertGptTalkList2GeminiTalkList(gptTalklist) {
-    console.log("gqt对话列表为：" + gptTalklist.length);
+    console.log("gqt对话列表为："+gptTalklist.length);
     let geminiTalkList = [];
     for (let i = 0; i < gptTalklist.length; i++) {
         let gptTalk = gptTalklist[i];
-        let geminiTalk = {
-            "role": gptTalk.role == "system" ? "model" : "user",
-            "parts": [
-                {
-                    "text": "Write the first line of a story about a magic backpack."
-                }
-            ]
-        }
+        let geminiTalk = {"role": gptTalk.role=="system"?"model":"user",
+        "parts": [
+            {
+                "text": gptTalk.content
+            }
+        ]}
         geminiTalkList.push(geminiTalk);
     }
     console.log(geminiTalkList);
     return geminiTalkList;
 }
 
-async function buildStreamResponse(msg) {
-    const stream = new ReadableStream({
-        start(controller) {
-            controller.enqueue(`data: [DONE] \n\n`);
-            controller.enqueue(`data: {
-                  "id": "chatcmpl-9yBOQH3TdLCRmVS82gnABaHQ0jb25",
-                  "object": "chat.completion.chunk",
-                  "created": 1702820230,
-                  "model": "gpt-3.5-turbo",
-                  "choices": [
-                      {
-                          "delta": {},
-                          "index": 0,
-                          "finish_reason": "stop"
-                      }
-                  ]
-                  }\n\n`);
-            controller.enqueue("data: " + convert2GptResponse(msg) + `\n\n`);
-            controller.close();
-        }
-    });
-    // 设置适当的响应头
-    const headers = new Headers();
-    headers.set('Content-Type', 'text/event-stream'); // 设置为text/event-stream
 
-    // 返回流式数据给客户端
-    return new Response(stream, {
-        status: 200,
-        statusText: 'OK',
-        headers,
-    });
-}
 
-async function buildResponse(msg) {
+function buildResponse(msg){
     return new Response(convert2GptResponse(msg), {
         headers: {
             "content-type": "application/json",
