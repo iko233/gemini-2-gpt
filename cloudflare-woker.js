@@ -50,6 +50,8 @@ async function handleRequest(request) {
             "access-control-allow-methods": "GET,PUT,POST,DELETE,PATCH,HEAD,CONNECT,OPTIONS,TRACE",
             "access-control-allow-origin": "*",
             "access-control-max-age": "3628800",
+            "trace-id":"6ae8838f0c32a217a853fb36cd2c093d",
+            "Cache-Control":"no-cache"
         }
     });
 
