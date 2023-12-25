@@ -13,22 +13,24 @@ addEventListener('fetch', event => {
 });
 
 async function handleRequest(request) {
+    let body = await request.json();
+    console.log("请求内容为:", body)
     let authorization = request.headers.get('Authorization');
     if (authorization == '' || authorization == undefined || authorization == null) {
-         return new Response(AUTH_KEY_NO_PROVIDE_FAIL_MESSAGE)
+        return new Response(AUTH_KEY_NO_PROVIDE_FAIL_MESSAGE)
     }
     let token = authorization.replace('Bearer ', '');
-    let body = await request.json();
+
     let geminiTalkList = convertGptTalkList2GeminiTalkList(body.messages);
     let isStream = body.stream;
-    console.log("请求列表为:",geminiTalkList)
-    const geminiResponse = await requestGemini(token,geminiTalkList );
-    console.log("响应内容为:",geminiResponse)
-    if(JSON.parse(geminiResponse).candidates[0].finishReason=='OTHER'){
+    console.log("请求列表为:", geminiTalkList)
+    const geminiResponse = await requestGemini(token, geminiTalkList);
+    console.log("响应内容为:", geminiResponse)
+    if (JSON.parse(geminiResponse).candidates[0].finishReason == 'OTHER') {
         return new Response(convert2GptResponse(''));
     }
     const geminiText = JSON.parse(geminiResponse).candidates[0].content.parts[0].text;
-    
+
     if (!isStream) {
         return buildResponse(geminiText);
     }
@@ -50,20 +52,20 @@ async function handleRequest(request) {
             "access-control-allow-methods": "GET,PUT,POST,DELETE,PATCH,HEAD,CONNECT,OPTIONS,TRACE",
             "access-control-allow-origin": "*",
             "access-control-max-age": "3628800",
-            "trace-id":"6ae8838f0c32a217a853fb36cd2c093d",
-            "Cache-Control":"no-cache"
+            "trace-id": "6ae8838f0c32a217a853fb36cd2c093d",
+            "Cache-Control": "no-cache"
         }
     });
 
- 
-    
+
+
 }
 
 
 
 async function requestGemini(token, talkList) {
-    const requestBody = JSON.stringify({"contents": talkList});
-    console.log("开始请求gemini:" + geminiUrl + token+requestBody);
+    const requestBody = JSON.stringify({ "contents": talkList });
+    console.log("开始请求gemini:" + geminiUrl + token + requestBody);
     const response = await fetch(geminiUrl + token, {
         body: requestBody,
         method: "POST",
@@ -78,41 +80,54 @@ async function requestGemini(token, talkList) {
 
 function convert2GptResponse(msg) {
     return JSON.stringify({
-      "choices": [
-          {
-              "finish_reason": "stop",
-              "index": 0,
-              "message": {
-                  "content": msg,
-                  "role": "assistant"
-              }
-          }
-      ],
-      "created": 1702814742,
-      "id": "chatcmpl-1Qq8McZaJvX4WrWqJgUHc7gOageEG",
-      "model": "",
-      "object": "chat.completion",
-      "usage": {
-          "completion_tokens": 42,
-          "prompt_tokens": 0,
-          "total_tokens": 42
-      }
-  })
-    
+        "choices": [
+            {
+                "finish_reason": "stop",
+                "index": 0,
+                "message": {
+                    "content": msg,
+                    "role": "assistant"
+                }
+            }
+        ],
+        "created": 1702814742,
+        "id": "chatcmpl-1Qq8McZaJvX4WrWqJgUHc7gOageEG",
+        "model": "",
+        "object": "chat.completion",
+        "usage": {
+            "completion_tokens": 42,
+            "prompt_tokens": 0,
+            "total_tokens": 42
+        }
+    })
+
 }
 
 
 function convertGptTalkList2GeminiTalkList(gptTalklist) {
-    console.log("gqt对话列表为："+gptTalklist.length);
+    console.log("gqt对话列表为：" + gptTalklist.length);
     let geminiTalkList = [];
     for (let i = 0; i < gptTalklist.length; i++) {
         let gptTalk = gptTalklist[i];
-        let geminiTalk = {"role": gptTalk.role=="system"?"model":"user",
-        "parts": [
-            {
-                "text": gptTalk.content
-            }
-        ]}
+        if (i == 0 && gptTalk.role == "system") {
+            geminiTalkList.push({
+                "role": "user",
+                "parts": [
+                    {
+                        "text": ""
+                    }
+                ]
+            });
+        }
+
+        let geminiTalk = {
+            "role": gptTalk.role == "system" || gptTalk.role =="assistant" ? "model" : "user",
+            "parts": [
+                {
+                    "text": gptTalk.content
+                }
+            ]
+        }
         geminiTalkList.push(geminiTalk);
     }
     console.log(geminiTalkList);
@@ -121,7 +136,7 @@ function convertGptTalkList2GeminiTalkList(gptTalklist) {
 
 
 
-function buildResponse(msg){
+function buildResponse(msg) {
     return new Response(convert2GptResponse(msg), {
         headers: {
             "content-type": "application/json",
